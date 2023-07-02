@@ -134,7 +134,7 @@ contract Property is
         /// If the ADMIN creates a reservation, it's approved by default.
         if (hasRole(ADMIN_ROLE, _caller)) {
             _reservation.status = Status.Approved;
-            // _notifyAprovementToController(_accordId);
+            _notifyAprovementToController(_accordId);
         } else {
             _reservation.status = Status.Proposed;
         }
@@ -167,17 +167,6 @@ contract Property is
     function _notifyAprovementToController(bytes32 _accordId) private {
         controller.confirmApprovedByProperty(_accordId);
     }
-
-    // function _getIndex(bytes32 _accordId) private view returns (uint8) {
-    //     uint _total = reservations.length;
-    //     for (uint8 i = 0; i < _total; ++i) {
-    //         Reservation memory _reservation = reservations[i];
-    //         if (_reservation.accordId == _accordId) {
-    //             return i;
-    //         }
-    //     }
-    //     revert AccordIdNotFound();
-    // }
 
     function _isUnique(bytes32 _accordId) private view returns (bool) {
         return proposedHashIds.contains(_accordId)

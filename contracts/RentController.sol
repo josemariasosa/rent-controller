@@ -100,6 +100,7 @@ contract RentController is IRentController, Treasurable {
         uint256 _upfrontPaymentEth,
         uint256 _upfrontPayment,
         IProperty _property,
+        address _user,
         string memory _accordSlug
     ) public {
         require(_dividedInto > 0);
@@ -112,6 +113,7 @@ contract RentController is IRentController, Treasurable {
         /// If property is not available, next line will revert.
         _property.createReservation(msg.sender, hash_id, _validUntil, _start, _end);
         _data.property = address(_property);
+        _data.property = _user;
 
         _data.startTimestamp = _start;
         _data.endTimestamp = _end;
@@ -128,5 +130,10 @@ contract RentController is IRentController, Treasurable {
     function confirmApprovedByProperty(bytes32 _accordId) public onlyProperty(_accordId) {
         AccordMutable storage _accord = accords[_accordId];
         _accord.approvedByProperty = true;
+    }
+
+    function acceptAccord(bytes32 _accordId) public {
+        AccordImmutable memory _data = accordsData[_accordId];
+        if (msg.sender != _data.user) { revert Unauthorized(); }
     }
 }
