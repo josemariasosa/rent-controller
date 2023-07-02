@@ -16,7 +16,7 @@ interface IProperty {
     error AccordIdNotFound();
     error ExceededMaxReservations();
 
-    function checkAvailability(uint64 _start, uint64 _end) external view returns (bool);
+    // function checkAvailability(uint64 _start, uint64 _end) external view returns (bool);
     function createReservation(address _caller, bytes32 _accordId, uint64 _start, uint64 _end) external;
  
 }
