@@ -161,7 +161,13 @@ contract Property is
     }
 
     function confirmedByUser(bytes32 _accordId) public onlyController {
+        Reservation storage _reservation = reservations[_accordId];
 
+        require(_reservation.status == Status.Approved);
+        _reservation.status = Status.Confirmed;
+
+        approvedHashIds.remove(_accordId);
+        confirmedHashIds.add(_accordId);
     }
 
     /// *********************

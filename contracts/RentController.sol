@@ -82,6 +82,11 @@ contract RentController is IRentController, Treasurable {
         _;
     }
 
+    modifier onlyUser(bytes32 _accordId) {
+        if (msg.sender != accordsData[_accordId].user) { revert Unauthorized(); }
+        _;
+    }
+
     constructor(
         uint64 _createAccordPrice,
         uint64 _createAccordPriceEth,
@@ -162,5 +167,16 @@ contract RentController is IRentController, Treasurable {
 
         local.safeTransferFrom(msg.sender, address(this), _amount);
         _data.property.confirmedByUser(_accordId);
+    }
+
+    function mintKey(bytes32 _accordId) public onlyUser(_accordId) {
+        AccordImmutable memory _data = accordsData[_accordId];
+
+        _requirePayment(_accordId);
+
+    }
+
+    function _requirePayment(bytes32 _accordId) private {
+
     }
 }
