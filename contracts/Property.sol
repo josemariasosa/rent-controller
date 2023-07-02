@@ -142,51 +142,42 @@ contract Property is
         reservations[_accordId] = _reservation;
     }
 
-//     /// @notice To confirm a reservation, the ADMIN must approve it.
-//     /// @param _approved if false, then it will DELETE the reservation.
-//     function approveOrRemoveReservation(
-//         bool _approved,
-//         bytes32 _accordId
-//     ) public onlyRole(ADMIN_ROLE) {
-//         // uint8 _index = _getIndex(_accordId);
-//         // if (_approved) {
-//         //     Reservation storage _reservation = reservations[_index];
-//         //     _reservation.approved = true;
-//         //     // _notifyAprovementToController(_accordId);
-//         // } else {
-//         //     _removeReservation(_index);
-//         // }
-//     }
+    /// @notice To confirm a reservation, the ADMIN must approve it.
+    /// @param _approved if false, then it will DELETE the reservation.
+    function approveOrRemoveReservation(
+        bool _approved,
+        bytes32 _accordId
+    ) public onlyRole(ADMIN_ROLE) {
+        /// Only for proposed accords.
+        require(proposedHashIds.contains(_accordId));
+        proposedHashIds.remove(_accordId);
 
-//     /// *********************
-//     /// * Private functions *
-//     /// *********************
+        if (_approved) {
+            Reservation storage _reservation = reservations[_accordId];
+            _reservation.status = Status.Approved;
+            approvedHashIds.add(_accordId);
+            _notifyAprovementToController(_accordId);
+        }
+    }
 
-//     function _notifyAprovementToController(bytes32 _accordId) private {
-//         controller.confirmApprovedByProperty(_accordId);
-//     }
+    /// *********************
+    /// * Private functions *
+    /// *********************
 
-//     function _getIndex(bytes32 _accordId) private view returns (uint8) {
-//         uint _total = reservations.length;
-//         for (uint8 i = 0; i < _total; ++i) {
-//             Reservation memory _reservation = reservations[i];
-//             if (_reservation.accordId == _accordId) {
-//                 return i;
-//             }
-//         }
-//         revert AccordIdNotFound();
-//     }
+    function _notifyAprovementToController(bytes32 _accordId) private {
+        controller.confirmApprovedByProperty(_accordId);
+    }
 
-//     function _removeReservation(uint8 _index) private {
-//         uint _length = reservations.length;
-//         require(_index < _length, "Index out of bounds");
-
-//         // Move the last element into the place of the element to be removed
-//         reservations[_index] = reservations[_length - 1];
-        
-//         // Remove the last element
-//         reservations.pop();
-//     }
+    // function _getIndex(bytes32 _accordId) private view returns (uint8) {
+    //     uint _total = reservations.length;
+    //     for (uint8 i = 0; i < _total; ++i) {
+    //         Reservation memory _reservation = reservations[i];
+    //         if (_reservation.accordId == _accordId) {
+    //             return i;
+    //         }
+    //     }
+    //     revert AccordIdNotFound();
+    // }
 
     function _isUnique(bytes32 _accordId) private view returns (bool) {
         return proposedHashIds.contains(_accordId)

@@ -15,6 +15,6 @@ interface IRentController {
     // function checkAvailability(uint64 _start, uint64 _end) external view returns (bool);
     // function createReservation(address _caller, uint64 _start, uint64 _end) external returns (bool);
 
-    // function confirmApprovedByProperty(bytes32 _accordId) external;
+    function confirmApprovedByProperty(bytes32 _accordId) external;
  
 }
