@@ -17,7 +17,14 @@ contract Property is
     CheckTime
 {
 
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+
     uint8 constant public MAX_RESERVATIONS = 10;
+
+    /// @notice the size of the Set is restricted by `MAX_RESERVATIONS`
+    EnumerableSet.Bytes32Set private proposedHashIds;
+    EnumerableSet.Bytes32Set private approvedHashIds;
+    EnumerableSet.Bytes32Set private confirmedHashIds;
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
@@ -30,28 +37,33 @@ contract Property is
     uint256 public balance;
     uint256 public balanceEth;
 
+    enum Status {
+        Proposed,
+        Approved,
+        Confirmed
+    }
+
     /// @notice Only fully-accepted accords.
     /// Only the operator or owner can create a reservation.
     struct Reservation {
         /// Only the owner can approve a reservation.
-        bool approved;
-        bool confirmed;
+        Status status;
         bytes32 accordId;
         uint64 startTimestamp;
         uint64 endTimestamp;
     }
 
-    Reservation[] public reservations;
+    mapping(bytes32 => Reservation) public reservations;
 
     modifier onlyController() {
         if (msg.sender != address(controller)) { revert Unauthorized(); }
         _;
     }
 
-//     modifier uniqueAccordId(bytes32 _accordId) {
-//         if (!_isUnique(_accordId)) { revert DuplicatedAccordId(); }
-//         _;
-//     }
+    modifier uniqueId(bytes32 _accordId) {
+        if (!_isUnique(_accordId)) { revert DuplicatedAccordId(); }
+        _;
+    }
 
     modifier onlyOperatorAdmin(address _caller) {
         if (hasRole(OPERATOR_ROLE, _caller) || hasRole(ADMIN_ROLE, _caller)) {
@@ -79,49 +91,55 @@ contract Property is
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
-    // /// @param _start timestamp in seconds.
-    // /// @param _end timestamp in seconds.
-    // function checkAvailability(
-    //     uint64 _start,
-    //     uint64 _end
-    // ) public view check(_start, _end) returns (bool) {
-    //     if (reservations.length >= MAX_RESERVATIONS) { revert ExceededMaxReservations(); }
+    /// @param _until accord valid until timestamp in seconds.
+    /// @param _start timestamp in seconds.
+    /// @param _end timestamp in seconds.
+    function checkAvailability(
+        uint64 _until,
+        uint64 _start,
+        uint64 _end
+    ) public view check(_until, _start, _end) returns (bool) {
+        uint _length = approvedHashIds.length();
+        if (_length >= MAX_RESERVATIONS) { revert ExceededMaxReservations(); }
 
-    //     // uint64 _cleaningDuration = cleaningDuration;
-    //     // for (uint i = 0; i < reservations.length; ++i) {
-    //     //     Reservation memory _reservation = reservations[i];
-    //     //     bool _available = _checkReservation(
-    //     //         _reservation,
-    //     //         _cleaningDuration,
-    //     //         _startTimestamp,
-    //     //         _endTimestamp
-    //     //     );
-    //     //     if (!_available) { return false; }
-    //     // }
-    //     return true;
-    // }
+        uint64 _cleaningDuration = cleaningDuration;
+        for (uint i = 0; i < _length; ++i) {
+            Reservation memory _reservation = reservations[approvedHashIds.at(i)];
+            bool _available = _checkReservation(
+                _reservation,
+                _cleaningDuration,
+                _start,
+                _end
+            );
+            if (!_available) { return false; }
+        }
+        return true;
+    }
 
     function createReservation(
         address _caller,
         bytes32 _accordId,
+        uint64 _until,
         uint64 _start,
         uint64 _end
-    ) external onlyController onlyOperatorAdmin(_caller) {/// uniqueAccordId(_accordId) {
-        // bool _available = checkAvailability(_start, _end);
-        // if (!_available) { revert PropertyNotAvailable(_start, _end); }
+    ) external onlyController onlyOperatorAdmin(_caller) uniqueId(_accordId) {
+        bool _available = checkAvailability(_until, _start, _end);
+        if (!_available) { revert PropertyNotAvailable(_start, _end); }
 
-        // Reservation memory _reservation;
-        // _reservation.accordId = _accordId;
-        // _reservation.startTimestamp = _start;
-        // _reservation.endTimestamp = _end;
+        Reservation memory _reservation;
+        _reservation.accordId = _accordId;
+        _reservation.startTimestamp = _start;
+        _reservation.endTimestamp = _end;
         
-        // /// If the ADMIN creates a reservation, it's approved by default.
-        // if (hasRole(ADMIN_ROLE, _caller)) {
-        //     _reservation.approved = true;
-        //     // _notifyAprovementToController(_accordId);
-        // }
+        /// If the ADMIN creates a reservation, it's approved by default.
+        if (hasRole(ADMIN_ROLE, _caller)) {
+            _reservation.status = Status.Approved;
+            // _notifyAprovementToController(_accordId);
+        } else {
+            _reservation.status = Status.Proposed;
+        }
 
-        // reservations.push(_reservation);
+        reservations[_accordId] = _reservation;
     }
 
 //     /// @notice To confirm a reservation, the ADMIN must approve it.
@@ -170,35 +188,22 @@ contract Property is
 //         reservations.pop();
 //     }
 
-//     function _isUnique(bytes32 _accordId) private view returns (bool) {
-//         uint _total = reservations.length;
-//         for (uint i = 0; i < _total; ++i) {
-//             Reservation memory _reservation = reservations[i];
-//             if (_reservation.accordId == _accordId) {
-//                 return false;
-//             }
-//         }
-//         return true;
-//     }
+    function _isUnique(bytes32 _accordId) private view returns (bool) {
+        return proposedHashIds.contains(_accordId)
+            || approvedHashIds.contains(_accordId)
+            || confirmedHashIds.contains(_accordId);
+    }
 
-//     function _checkReservation(
-//         Reservation memory _reservation,
-//         uint64 _cleaningDuration,
-//         uint64 _start,
-//         uint64 _end
-//     ) private pure returns (bool) {
-//         bool _approved = _reservation.approved;
-//         bool _fitBefore = _end + _cleaningDuration < _reservation.startTimestamp;
-//         bool _fitAfter = _start > _reservation.endTimestamp + _cleaningDuration;
-
-//         if (_approved) {
-//             if (_fitBefore || _fitAfter) {
-//                 return true;
-//             } else {
-//                 return false;
-//             }
-//         } else {
-//             return true;
-//         }
-//     }
+    /// @param _reservation should ONLY be approved reservations
+    function _checkReservation(
+        Reservation memory _reservation,
+        uint64 _cleaningDuration,
+        uint64 _start,
+        uint64 _end
+    ) private pure returns (bool) {
+        bool _fitBefore = _end + _cleaningDuration < _reservation.startTimestamp;
+        bool _fitAfter = _start > _reservation.endTimestamp + _cleaningDuration;
+        if (_fitBefore || _fitAfter) { return true; }
+        return false;
+    }
 }
