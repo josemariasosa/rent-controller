@@ -160,6 +160,10 @@ contract Property is
         }
     }
 
+    function confirmedByUser(bytes32 _accordId) public onlyController {
+
+    }
+
     /// *********************
     /// * Private functions *
     /// *********************

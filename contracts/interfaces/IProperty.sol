@@ -18,5 +18,7 @@ interface IProperty {
 
     // function checkAvailability(uint64 _start, uint64 _end) external view returns (bool);
     function createReservation(address _caller, bytes32 _accordId, uint64 _until, uint64 _start, uint64 _end) external;
+
+    function confirmedByUser(bytes32 _accordId) external;
  
 }

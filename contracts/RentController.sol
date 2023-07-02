@@ -6,6 +6,7 @@ import "./interfaces/IRentController.sol";
 import "./utils/Treasurable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 
 // Uncomment this line to use console.log
 // import "hardhat/console.sol";
@@ -13,10 +14,15 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 contract RentController is IRentController, Treasurable {
 
     using EnumerableSet for EnumerableSet.Bytes32Set;
+    using SafeERC20 for IERC20;
 
     /// @notice It is immutable because if all of a sudden this changes, 
     /// all balances are wrong for the new local currency.
     IERC20 immutable public local;
+
+    /// Valid total balance in this contract.
+    uint256 public totalBalance;
+    uint256 public totalBalanceEth;
 
     /// d'accord 🥐
     struct AccordImmutable {
@@ -45,7 +51,7 @@ contract RentController is IRentController, Treasurable {
         /// Only three accounts are involved: owner, user, property.
         address owner;
         address user;
-        address property;
+        IProperty property;
     }
 
     struct AccordMutable {
@@ -71,8 +77,8 @@ contract RentController is IRentController, Treasurable {
     EnumerableSet.Bytes32Set private accordsHashIds;
 
     modifier onlyProperty(bytes32 _accordId) {
-        AccordImmutable memory _accord = accordsData[_accordId];
-        if (msg.sender != _accord.property) { revert Unauthorized(); }
+        IProperty _property = accordsData[_accordId].property;
+        if (msg.sender != address(_property)) { revert Unauthorized(); }
         _;
     }
 
@@ -112,11 +118,12 @@ contract RentController is IRentController, Treasurable {
 
         /// If property is not available, next line will revert.
         _property.createReservation(msg.sender, hash_id, _validUntil, _start, _end);
-        _data.property = address(_property);
-        _data.property = _user;
+        _data.property = _property;
+        _data.user = _user;
 
         _data.startTimestamp = _start;
         _data.endTimestamp = _end;
+        _data.validUntil = _validUntil;
         _data.rentAmount = _rentAmount;
         _data.dividedInto = _dividedInto;
         _data.upfrontPaymentEth = _upfrontPaymentEth;
@@ -132,8 +139,28 @@ contract RentController is IRentController, Treasurable {
         _accord.approvedByProperty = true;
     }
 
-    function acceptAccord(bytes32 _accordId) public {
+    /// @param _amount denominated in local
+    function acceptAccord(bytes32 _accordId, uint256 _amount) public payable {
         AccordImmutable memory _data = accordsData[_accordId];
-        if (msg.sender != _data.user) { revert Unauthorized(); }
+        address _user = _data.user;
+        require(block.timestamp < _data.validUntil);
+
+        // address _user = accordsData[_accordId].user;
+        AccordMutable memory _accord = accords[_accordId];
+        if (msg.sender != _user) { revert Unauthorized(); }
+        require(_accord.approvedByProperty);
+        require(_amount >= _data.upfrontPayment);
+        require(msg.value >= _data.upfrontPaymentEth);
+
+        // The amounts for this values are initialized here
+        _accord.balance = _amount;
+        _accord.balanceEth = msg.value;
+        _accord.approvedByUser = true;
+
+        totalBalance += _amount;
+        totalBalanceEth += msg.value;
+
+        local.safeTransferFrom(msg.sender, address(this), _amount);
+        _data.property.confirmedByUser(_accordId);
     }
 }
