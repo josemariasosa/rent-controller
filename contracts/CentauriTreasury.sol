@@ -10,15 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 
-// NOTE: SafeMath is no longer needed starting with Solidity 0.8. The compiler now has
-// built in overflow checking.
-
-/// @notice [FullyOperational] When is NOT fully operational, users cannot:
-/// 1) mint, 2) deposit nor 3) create withdraw orders.
-
-/// @notice [Whitelistable] removed for v0.2. Mainnet stAUR token is NOT whitelistable.
-
-contract StakedAuroraVault is
+contract CentauriTreasury is
     // FullyOperational,
     ERC4626
     // AccessControl,
