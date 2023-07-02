@@ -43,23 +43,23 @@ contract Property is
 
     Reservation[] public reservations;
 
-//     modifier onlyController() {
-//         if (msg.sender != address(controller)) { revert Unauthorized(); }
-//         _;
-//     }
+    modifier onlyController() {
+        if (msg.sender != address(controller)) { revert Unauthorized(); }
+        _;
+    }
 
 //     modifier uniqueAccordId(bytes32 _accordId) {
 //         if (!_isUnique(_accordId)) { revert DuplicatedAccordId(); }
 //         _;
 //     }
 
-//     modifier onlyOperatorAdmin(address _caller) {
-//         if (hasRole(OPERATOR_ROLE, _caller) || hasRole(ADMIN_ROLE, _caller)) {
-//             _;
-//         } else {
-//             revert Unauthorized();
-//         }
-//     }
+    modifier onlyOperatorAdmin(address _caller) {
+        if (hasRole(OPERATOR_ROLE, _caller) || hasRole(ADMIN_ROLE, _caller)) {
+            _;
+        } else {
+            revert Unauthorized();
+        }
+    }
 
     constructor(
         IERC20 _localCurrency,
@@ -106,7 +106,7 @@ contract Property is
         bytes32 _accordId,
         uint64 _start,
         uint64 _end
-    ) external {///onlyController onlyOperatorAdmin(_caller) {/// uniqueAccordId(_accordId) {
+    ) external onlyController onlyOperatorAdmin(_caller) {/// uniqueAccordId(_accordId) {
         // bool _available = checkAvailability(_start, _end);
         // if (!_available) { revert PropertyNotAvailable(_start, _end); }
 
