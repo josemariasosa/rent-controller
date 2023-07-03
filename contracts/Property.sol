@@ -2,8 +2,10 @@
 pragma solidity 0.8.18;
 
 import "./utils/CheckTime.sol";
+import "./utils/BasisPoint.sol";
 import "./interfaces/IRentController.sol";
 import "./interfaces/IProperty.sol";
+import "./interfaces/ICentauriTreasury.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
@@ -14,12 +16,14 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 contract Property is
     IProperty,
     AccessControl,
-    CheckTime
+    CheckTime,
+    BasisPoint
 {
 
     using EnumerableSet for EnumerableSet.Bytes32Set;
 
     uint8 constant public MAX_RESERVATIONS = 10;
+    uint16 constant public MAX_RENT_FEE_BASIS_POINT = 1500;
 
     /// @notice the size of the Set is restricted by `MAX_RESERVATIONS`
     EnumerableSet.Bytes32Set private proposedHashIds;
@@ -29,8 +33,10 @@ contract Property is
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 
-    address public treasury;
+    /// @notice var denominated in basis points
+    uint16 public rentFee;
 
+    ICentauriTreasury public treasury;
     IERC20 immutable public local;
     IRentController immutable public controller;
 
@@ -76,18 +82,23 @@ contract Property is
     constructor(
         IERC20 _localCurrency,
         IRentController _controller,
+        uint16 _rentFee,
         uint64 _cleaningDuration,
         uint64 _minStayDuration,
         uint64 _maxAnticipationDuration,
-        address _operatorRole,
-        address _treasuryRole
-    ) CheckTime(_cleaningDuration, _minStayDuration, _maxAnticipationDuration) {
+        address _operator,
+        ICentauriTreasury _treasury
+    )
+        CheckTime(_cleaningDuration, _minStayDuration, _maxAnticipationDuration)
+        BasisPoint(MAX_RENT_FEE_BASIS_POINT)
+    {
         local = _localCurrency;
         controller = _controller;
-        treasury = _treasuryRole;
+        treasury = _treasury;
+        rentFee = _rentFee;
 
         _grantRole(ADMIN_ROLE, msg.sender);
-        _grantRole(OPERATOR_ROLE, _operatorRole);
+        _grantRole(OPERATOR_ROLE, _operator);
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -168,6 +179,10 @@ contract Property is
 
         approvedHashIds.remove(_accordId);
         confirmedHashIds.add(_accordId);
+    }
+
+    function getAvailableLocalBalance() public view returns (uint256) {
+        return treasury.convertToAssets(treasury.balanceOf(address(this)));
     }
 
     /// *********************

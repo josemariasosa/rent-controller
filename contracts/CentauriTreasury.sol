@@ -4,38 +4,52 @@ pragma solidity 0.8.18;
 /// @title Centauri Treasury 🪐 vault contract.
 /// @author alpha-centauri.sats 🛰️
 
-// import "./utils/FullyOperational.sol";
-// import "@openzeppelin/contracts/access/AccessControl.sol";
+import "./interfaces/ICentauriTreasury.sol";
+import "./interfaces/IRentController.sol";
+import "./utils/Pausable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 
+/// @notice The treasury only works with the ERC20 "local currency"
+
 contract CentauriTreasury is
-    // FullyOperational,
-    ERC4626
-    // AccessControl,
-    // IStakedAuroraVaultEvents
+    ICentauriTreasury,
+    ERC4626,
+    Pausable,
+    AccessControl
 {
     using SafeERC20 for IERC20;
 
-    constructor(
-        uint256 _minDepositAmount,
-        address _contractOperatorRole,
-        IERC20 _asset,
-        string memory _stAurName,
-        string memory _stAurSymbol
-    )
-        ERC4626(_asset)
-        ERC20(_stAurName, _stAurSymbol)
-    {
-        // if (address(_asset) == address(0) || _contractOperatorRole == address(0)) {
-        //     revert InvalidZeroAddress();
-        // }
-        // minDepositAmount = _minDepositAmount;
+    uint16 public constant ONE_HUNDRED = 10_000;
 
-        // _grantRole(ADMIN_ROLE, msg.sender);
-        // _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        // _grantRole(OPERATOR_ROLE, _contractOperatorRole);
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+
+    IRentController public controller;
+
+    modifier onlyController() {
+        require(msg.sender == address(controller));
+        _;
+    }
+
+    constructor(
+        address _operator,
+        IERC20 _local,
+        string memory _centName,
+        string memory _centSymbol
+    )
+        ERC4626(_local)
+        ERC20(_centName, _centSymbol)
+    {
+        if (address(_local) == address(0) || _operator == address(0)) {
+            revert InvalidZeroAddress();
+        }
+
+        _grantRole(ADMIN_ROLE, msg.sender);
+        _grantRole(OPERATOR_ROLE, _operator);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
     receive() external payable {}
@@ -44,83 +58,79 @@ contract CentauriTreasury is
     // * Admin functions *
     // *******************
 
-    // function initializeLiquidStaking(
-    //     IStakingManager _stakingManager,
-    //     ILiquidityPool _liquidityPool
-    // ) external onlyRole(ADMIN_ROLE) {
-    //     if (address(liquidityPool) != address(0)
-    //             || address(stakingManager) != address(0)) {
-    //         revert ContractAlreadyInitialized();
-    //     }
-    //     if (address(_stakingManager) == address(0)
-    //             || address(_liquidityPool) == address(0)) {
-    //         revert InvalidZeroAddress();
-    //     }
+    function initializeController(
+        IRentController _controller
+    ) external onlyRole(ADMIN_ROLE) {
+        if (address(controller) != address(0)) { revert ContractAlreadyInitialized(); }
+        if (address(_controller) == address(0)) { revert InvalidZeroAddress(); }
 
-    //     stakingManager = _stakingManager;
-    //     liquidityPool = _liquidityPool;
+        controller = _controller;
 
-    //     // Get fully operational for the first time.
-    //     updateContractOperation(true);
+        // // Get fully operational for the first time.
+        // updateContractOperation(true);
 
-    //     emit ContractInitialized(
-    //         address(_stakingManager),
-    //         address(_liquidityPool),
-    //         msg.sender
-    //     );
-    // }
+        // emit ContractInitialized(
+        //     address(_stakingManager),
+        //     address(_liquidityPool),
+        //     msg.sender
+        // );
+    }
 
-    // /// @dev In case of emergency 🛟, update the Manager contract.
-    // function updateStakingManager(
-    //     IStakingManager _stakingManager
-    // ) external onlyRole(ADMIN_ROLE) {
-    //     if (address(_stakingManager) == address(0)) { revert InvalidZeroAddress(); }
-    //     if (address(stakingManager) == address(0)) { revert ContractNotInitialized(); }
-    //     stakingManager = _stakingManager;
+    function updateController(
+        IRentController _controller
+    ) external onlyRole(ADMIN_ROLE) {
+        if (address(_controller) == address(0)) { revert InvalidZeroAddress(); }
+        if (address(controller) == address(0)) { revert ContractNotInitialized(); }
+        controller = _controller;
 
-    //     emit NewManagerUpdate(address(_stakingManager), msg.sender);
-    // }
+        // emit NewManagerUpdate(address(_controller), msg.sender);
+    }
 
-    // function updateLiquidityPool(
-    //     ILiquidityPool _liquidityPool
-    // ) external onlyRole(ADMIN_ROLE) {
-    //     if (address(_liquidityPool) == address(0)) { revert InvalidZeroAddress(); }
-    //     if (address(liquidityPool) == address(0)) { revert ContractNotInitialized(); }
-    //     liquidityPool = _liquidityPool;
 
-    //     emit NewLiquidityPoolUpdate(address(_liquidityPool), msg.sender);
-    // }
+    function updateContractPause(
+        bool _isPaused
+    ) public override onlyRole(ADMIN_ROLE) {
+        if (_isPaused && (address(controller) == address(0))) {
+            revert ContractNotInitialized();
+        }
+        paused = _isPaused;
 
-    // function updateMinDepositAmount(uint256 _amount) external onlyRole(OPERATOR_ROLE) {
-    //     minDepositAmount = _amount;
+        // emit ContractUpdateOperation(_isPaused, msg.sender);
+    }
 
-    //     emit UpdateMinDepositAmount(_amount, msg.sender);
-    // }
+    function getCentPrice() public view returns (uint256) {
+        uint256 ONE_CENTAURI = 1 ether;
+        return convertToAssets(ONE_CENTAURI);
+    }
 
-    // /// @notice Use in case of emergency 🦺.
-    // /// @dev Check if the contract is initialized when the change is to true.
-    // function updateContractOperation(
-    //     bool _isFullyOperational
-    // ) public override onlyRole(ADMIN_ROLE) {
-    //     if (_isFullyOperational
-    //             && (address(liquidityPool) == address(0)
-    //                     || address(stakingManager) == address(0))) {
-    //         revert ContractNotInitialized();
-    //     }
-    //     fullyOperational = _isFullyOperational;
+    // ************************
+    // * Controller functions *
+    // ************************
 
-    //     emit ContractUpdateOperation(_isFullyOperational, msg.sender);
-    // }
+    function payRent(
+        uint256 _amount,
+        address _owner,
+        address _property,
+        uint16 _propertyRentFee
+    ) public onlyController {
+        uint256 shares = previewDeposit(_amount);
+        (uint256 _forOwner, uint256 _forProperty) = calculateRent(
+            shares,
+            _propertyRentFee
+        );
 
-    // function getStAurPrice() public view returns (uint256) {
-    //     uint256 ONE_AURORA = 1 ether;
-    //     return convertToAssets(ONE_AURORA);
-    // }
+        IERC20(asset()).safeTransferFrom(address(controller), address(this), _amount);
+        _mint(_owner, _forOwner);
+        _mint(_property, _forProperty);
+    }
 
-    // /// @notice The total assets are the sum of the balance from all Depositors.
-    // function totalAssets() public view override returns (uint256) {
-    //     return IStakingManager(stakingManager).totalAssets();
-    // }
+    function calculateRent(
+        uint256 _amount,
+        uint16 _propertyRentFee
+    ) internal pure returns (uint256 _forOwner, uint256 _forProperty) {
+        _forProperty = _amount * uint(_propertyRentFee) / uint(ONE_HUNDRED);
+        _forOwner = _amount - _forProperty;
+    }
 
     // // ******************
     // // * Core functions *

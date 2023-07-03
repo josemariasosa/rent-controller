@@ -20,5 +20,7 @@ interface IProperty {
     function createReservation(address _caller, bytes32 _accordId, uint64 _until, uint64 _start, uint64 _end) external;
 
     function confirmedByUser(bytes32 _accordId) external;
+
+    function rentFee() external view returns(uint16);
  
 }
