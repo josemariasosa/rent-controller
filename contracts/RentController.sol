@@ -178,17 +178,40 @@ contract RentController is IRentController, Treasurable {
         _data.property.confirmedByUser(_accordId);
     }
 
-    function _calculateDue(
-        AccordImmutable memory _data,
-        AccordMutable memory _accord
-    ) private returns (uint256, uint8) {
-        uint256 totalToPay = uint256(_data.dividedInto) * _data.rentAmount;
-        (uint256 totalPayed, uint8 _nextPeriod) = _getTotalPayed(_data);
-        uint256 _due = totalToPay - totalPayed;
-        return (_due, _nextPeriod);
+    function calculateDue(bytes32 _accordId) public view returns (
+        uint256 _payed,
+        uint256 _due,
+        uint16 _coveredPercent,
+        uint8 _nextPeriod
+    ) {
+        AccordImmutable memory _data = accordsData[_accordId];
+        return _calculateDue(_data);
     }
 
-    function _getNowPercent(AccordImmutable memory _data) private returns (uint16) {
+    function getNowPercentPeriod(bytes32 _accordId) public view returns(uint16, uint8) {
+        AccordImmutable memory _data = accordsData[_accordId];
+        uint16 _percent = _getNowPercent(_data);
+
+        /// TODO: TEST
+        uint _currentPeriod = (uint(_percent) * uint(_data.dividedInto)) / ONE_HUNDRED;
+        return (_percent, uint8(_currentPeriod));
+    }
+
+    function _calculateDue(
+        AccordImmutable memory _data
+    ) private view returns (
+        uint256 _payed,
+        uint256 _due,
+        uint16 _coveredPercent,
+        uint8 _nextPeriod
+    ) {
+        uint256 totalToPay = uint256(_data.dividedInto) * _data.rentAmount;
+        (_payed, _coveredPercent, _nextPeriod) = _getTotalPayed(_data);
+        _due = totalToPay - _payed;
+        return (_payed, _due, _coveredPercent, _nextPeriod);
+    }
+
+    function _getNowPercent(AccordImmutable memory _data) private view returns (uint16) {
         if (block.timestamp < _data.startTimestamp) {
             return 0;
         } else if (block.timestamp >= _data.startTimestamp && block.timestamp < _data.endTimestamp) {
@@ -201,27 +224,33 @@ contract RentController is IRentController, Treasurable {
         }
     }
 
-    function _getCoveredPercent(AccordImmutable memory _data) private returns (uint16) {
+    function _getCoveredPercent(
+        AccordImmutable memory _data,
+        uint256 _payed
+    ) private pure returns (uint16) {
         uint totalToPay = uint(_data.dividedInto) * _data.rentAmount;
-        (uint256 totalPayed,) = _getTotalPayed(_data);
-
-        uint _res = (totalPayed * uint(ONE_HUNDRED)) / totalToPay;
+        uint _res = (_payed * uint(ONE_HUNDRED)) / totalToPay;
         return uint16(_res);
     }
 
-    function _getTotalPayed(AccordImmutable memory _data) private returns (uint256, uint8) {
+    function _getTotalPayed(
+        AccordImmutable memory _data
+    ) private view returns (uint256 _payed, uint16 _coveredPercent, uint8 _nextPeriod) {
         uint8 periods = _data.dividedInto;
-        uint256 _result;
         uint8 _period;
         for (uint8 i = 0; i < periods; ++i) {
             uint256 _payedDuringPeriod = userPayments[_data.id][i];
 
             /// userPayments is being filled in order.
-            if (_payedDuringPeriod == 0) { return (_result, i); }
-            _result += _payedDuringPeriod;
+            if (_payedDuringPeriod == 0) {
+                _coveredPercent = _getCoveredPercent(_data, _payed);
+                return (_payed, _coveredPercent, _period);
+            }
+            _payed += _payedDuringPeriod;
             ++_period;
         }
-        return (_result, _period);
+        _coveredPercent = _getCoveredPercent(_data, _payed);
+        return (_payed, _coveredPercent, _period);
     }
 
     /// @param _periodsOfValidity how many period (monthds, weeks) the user want to pay
@@ -236,7 +265,7 @@ contract RentController is IRentController, Treasurable {
 
         require(block.timestamp < _data.endTimestamp);
 
-        (uint256 _due, uint8 _nextPeriod) = _calculateDue(_data, _accord);
+        (, uint256 _due, , uint8 _nextPeriod) = _calculateDue(_data);
 
         if (_due == 0) { revert AccordIsFullyPayed(); }
 

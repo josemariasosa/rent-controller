@@ -59,6 +59,13 @@ contract Property is
         uint64 endTimestamp;
     }
 
+    struct ReservationDetails {
+        uint8 nextPeriod;
+        uint8 currentPeriod;
+        uint256 dueAmount;
+        uint256 payedAmount;
+    }
+
     mapping(bytes32 => Reservation) public reservations;
 
     modifier onlyController() {
@@ -184,6 +191,19 @@ contract Property is
     function getAvailableLocalBalance() public view returns (uint256) {
         return treasury.convertToAssets(treasury.balanceOf(address(this)));
     }
+
+    // function getReservationDetails(bytes32 _accordId) public view returns (ReservationDetails) {
+    //     (uint256 _payed, uint256 _due, uint8 _nextPeriod) = controller.calculateDue(_accordId);
+    //     (uint256 _payed, uint256 _due, uint8 _nextPeriod) = controller.calculateDue(_accordId);
+    //     (uint16 _percent, uint8) = getNowPercentPeriod(bytes32 _accordId)
+    //     , uint8(_currentPeriod
+    //     return ReservationDetails {
+    //         _nextPeriod,
+    //         uint8 currentPeriod;
+    //         uint256 dueAmount;
+    //         uint256 payedAmount;
+    //     }
+    // }
 
     /// *********************
     /// * Private functions *

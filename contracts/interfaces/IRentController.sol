@@ -18,5 +18,8 @@ interface IRentController {
     // function createReservation(address _caller, uint64 _start, uint64 _end) external returns (bool);
 
     function confirmApprovedByProperty(bytes32 _accordId) external;
+
+    function calculateDue(bytes32 _accordId) external view returns (uint256 _payed, uint256 _due, uint16 _coveredPercent, uint8 _nextPeriod);
+    function getNowPercentPeriod(bytes32 _accordId) external view returns (uint16, uint8);
  
 }
