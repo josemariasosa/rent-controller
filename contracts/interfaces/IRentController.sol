@@ -12,6 +12,7 @@ interface IRentController {
     error Unauthorized();
     error NotEnoughBalance();
     error AccordIsFullyPayed();
+    error InvalidLength();
     error DoNotOverPay();
 
     // function checkAvailability(uint64 _start, uint64 _end) external view returns (bool);
@@ -20,6 +21,9 @@ interface IRentController {
     function confirmApprovedByProperty(bytes32 _accordId) external;
 
     function calculateDue(bytes32 _accordId) external view returns (uint256 _payed, uint256 _due, uint16 _coveredPercent, uint8 _nextPeriod);
-    function getNowPercentPeriod(bytes32 _accordId) external view returns (uint16, uint8);
- 
+    function getNowPercentPeriod(bytes32 _accordId) external view returns (uint16 _nowPercent, uint8 _currentPeriod);
+    function triggerStrikeOut(bytes32 _accordId, uint8 _strikes) external;
+    function softNoteStrikes(bytes32 _accordId, uint8 _strikes) external;
+
+    function STRIKE_OUT() external view returns (uint8);
 }

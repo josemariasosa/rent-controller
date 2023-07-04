@@ -40,13 +40,14 @@ contract Property is
     IERC20 immutable public local;
     IRentController immutable public controller;
 
-    uint256 public balance;
     uint256 public balanceEth;
 
     enum Status {
         Proposed,
         Approved,
-        Confirmed
+        Confirmed,
+        StrikeOut,
+        Success
     }
 
     /// @notice Only fully-accepted accords.
@@ -62,6 +63,8 @@ contract Property is
     struct ReservationDetails {
         uint8 nextPeriod;
         uint8 currentPeriod;
+        uint16 coveredPercent;
+        uint16 nowPercent;
         uint256 dueAmount;
         uint256 payedAmount;
     }
@@ -192,22 +195,94 @@ contract Property is
         return treasury.convertToAssets(treasury.balanceOf(address(this)));
     }
 
-    // function getReservationDetails(bytes32 _accordId) public view returns (ReservationDetails) {
-    //     (uint256 _payed, uint256 _due, uint8 _nextPeriod) = controller.calculateDue(_accordId);
-    //     (uint256 _payed, uint256 _due, uint8 _nextPeriod) = controller.calculateDue(_accordId);
-    //     (uint16 _percent, uint8) = getNowPercentPeriod(bytes32 _accordId)
-    //     , uint8(_currentPeriod
-    //     return ReservationDetails {
-    //         _nextPeriod,
-    //         uint8 currentPeriod;
-    //         uint256 dueAmount;
-    //         uint256 payedAmount;
-    //     }
-    // }
+    function getReservationDetails(
+        bytes32 _accordId
+    ) public view returns (ReservationDetails memory) {
+        (
+            uint256 _payed,
+            uint256 _due,
+            uint16 _coveredPercent,
+            uint8 _nextPeriod
+        ) = controller.calculateDue(_accordId);
+
+        (
+            uint16 _nowPercent,
+            uint8 _currentPeriod
+        ) = controller.getNowPercentPeriod(_accordId);
+
+        return ReservationDetails(
+            _nextPeriod,
+            _currentPeriod,
+            _coveredPercent,
+            _nowPercent,
+            _due,
+            _payed
+        );
+    }
+
+    function calculateStrikes(bytes32 _accordId) public view returns (uint8) {
+        return _calculateStrikes(getReservationDetails(_accordId));
+    }
+
+    function penalize(bytes32 _accordId) public onlyRole(OPERATOR_ROLE) {
+        require(block.timestamp < reservations[_accordId].endTimestamp);
+        require(reservations[_accordId].status == Status.Confirmed);
+        uint8 _strikes = calculateStrikes(_accordId);
+
+        if (_strikes == 0) { revert NoStrikes(); }
+        if (_strikes >= controller.STRIKE_OUT()) {
+            _triggerStrikeOut(_accordId, _strikes);
+        } else {
+            _softNoteStrikes(_accordId, _strikes);
+        }
+    }
+
+    function terminate(bytes32 _accordId) external onlyRole(OPERATOR_ROLE) {
+        _terminate(_accordId);
+    }
+
+    function userTerminate(bytes32 _accordId) external onlyController {
+        _terminate(_accordId);
+    }
 
     /// *********************
     /// * Private functions *
     /// *********************
+
+    function _terminate(bytes32 _accordId) private {
+        require(reservations[_accordId].endTimestamp <= block.timestamp);
+        require(reservations[_accordId].status == Status.Confirmed);
+        uint8 _strikes = calculateStrikes(_accordId);
+        if (_strikes < controller.STRIKE_OUT()) {
+             Reservation storage _reservation = reservations[_accordId];
+            _reservation.status = Status.Success;
+
+            _softNoteStrikes(_accordId, _strikes);
+        } else {
+            _triggerStrikeOut(_accordId, _strikes);
+        }
+    }
+
+    function _triggerStrikeOut(bytes32 _accordId, uint8 _strikes) private {
+        Reservation storage _reservation = reservations[_accordId];
+        _reservation.status = Status.StrikeOut;
+
+        controller.triggerStrikeOut(_accordId, _strikes);
+    }
+
+    function _softNoteStrikes(bytes32 _accordId, uint8 _strikes) private {
+        controller.softNoteStrikes(_accordId, _strikes);
+    }
+
+    function _calculateStrikes(
+        ReservationDetails memory _details
+    ) private pure returns (uint8) {
+        if (_details.nowPercent <= _details.coveredPercent) {
+            return 0;
+        } else {
+            return _details.currentPeriod - _details.nextPeriod;
+        }
+    }
 
     function _notifyAprovementToController(bytes32 _accordId) private {
         controller.confirmApprovedByProperty(_accordId);

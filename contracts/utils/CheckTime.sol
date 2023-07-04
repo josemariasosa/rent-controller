@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.18;
 
+import "./interfaces/ICheckTime.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 // Uncomment this line to use console.log
 // import "hardhat/console.sol";
 
-contract CheckTime {
+contract CheckTime is ICheckTime {
 
     /// @notice One day to allow
     uint64 public constant MIN_VALIDITY_DURATION = 60 * 60 * 24;

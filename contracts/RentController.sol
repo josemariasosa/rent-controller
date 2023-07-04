@@ -20,7 +20,10 @@ contract RentController is IRentController, Treasurable {
     uint16 public constant ONE_HUNDRED = 10_000;
 
     uint8 public constant STRIKE_OUT = 3;
-    uint8 public strikes;
+
+    /// @notice hard refers if the user has more than 1 strike after endTimestamp.
+    /// [hardBasisPoint, softBasisPoint]
+    mapping(uint8 => uint16[2]) public hardSoftPenalization;
 
     /// @notice It is immutable because if all of a sudden this changes, 
     /// all balances are wrong for the new local currency.
@@ -59,6 +62,11 @@ contract RentController is IRentController, Treasurable {
     }
 
     struct AccordMutable {
+        bool propertyStrikeOut;
+
+        /// @dev if propertyStrikeOut is true, strikes is immutable.
+        uint8 strikes;
+
         /// @dev The accord balances should eventually go back to Zero.
         uint256 balanceEth;
 
@@ -67,6 +75,7 @@ contract RentController is IRentController, Treasurable {
 
         bool approvedByUser;
         bool approvedByProperty;
+
     }
 
     // // /// This mappings are HEAVY stuff, they should evenctually move off-chain.
@@ -94,14 +103,27 @@ contract RentController is IRentController, Treasurable {
         _;
     }
 
+    /// @param _hardSoft looks like [[3000, 1500], [6000, 3000]]
+    ///                              [1rs strike]  [2nd strike]
+    /// by policy: Strike Out equals [ONE_HUNDRED, ONE_HUNDRED]
     constructor(
         uint64 _createAccordPrice,
         uint64 _createAccordPriceEth,
         IERC20 _localCurrency,
-        ICentauriTreasury _treasury
+        ICentauriTreasury _treasury,
+        uint16[2][] memory _hardSoft
     ) Treasurable(_createAccordPrice, _createAccordPriceEth) {
         local = _localCurrency;
         treasury = _treasury;
+
+        if ((_hardSoft.length + 1) != STRIKE_OUT) { revert InvalidLength(); }
+        for (uint8 i = 0; i < STRIKE_OUT; ++i) {
+            uint16 _hard = _hardSoft[i][0];
+            uint16 _soft = _hardSoft[i][1];
+            require(_hard >= _soft);
+            hardSoftPenalization[i+1] = [_hard, _soft];
+        }
+        hardSoftPenalization[STRIKE_OUT] = [ONE_HUNDRED, ONE_HUNDRED];
     }
 
     function getUniqueHashId(string memory _accordSlug) public view returns (bytes32) {
@@ -178,6 +200,96 @@ contract RentController is IRentController, Treasurable {
         _data.property.confirmedByUser(_accordId);
     }
 
+    /// @param _periodsOfValidity how many period (monthds, weeks) the user want to pay
+    function payKey(
+        bytes32 _accordId,
+        uint8 _periodsOfValidity,
+        uint256 _amount
+    ) external onlyUser(_accordId) {
+        require(_periodsOfValidity > 0);
+        AccordImmutable memory _data = accordsData[_accordId];
+        AccordMutable memory _accord = accords[_accordId];
+
+        require(block.timestamp < _data.endTimestamp);
+
+        (, uint256 _due, , uint8 _nextPeriod) = _calculateDue(_data);
+
+        if (_due == 0) { revert AccordIsFullyPayed(); }
+
+        uint256 _currentBalance = _accord.balance;
+        uint256 _lastBalance = _currentBalance + _amount;
+        _accord.balance = _lastBalance;
+
+        uint256 toPay = _periodsOfValidity * _data.rentAmount;
+        if (toPay > (_lastBalance - _data.upfrontPayment)) { revert NotEnoughBalance(); }
+
+        if (toPay > _due) { revert DoNotOverPay(); }
+
+        uint256 forTreasury;
+        for (uint8 i = _nextPeriod; i < (_nextPeriod + _periodsOfValidity); ++i) {
+            userPayments[_accordId][i] = _data.rentAmount;
+            _accord.balance -= _data.rentAmount;
+            totalBalance -= _data.rentAmount;
+            forTreasury += _data.rentAmount;
+        }
+
+        local.safeTransferFrom(msg.sender, address(this), _amount);
+        local.safeIncreaseAllowance(address(treasury), forTreasury);
+        treasury.payRent(forTreasury, _data.owner, address(_data.property), _data.property.rentFee());
+    }
+
+    function userTerminate(bytes32 _accordId) public onlyUser(_accordId) {
+        AccordImmutable memory _data = accordsData[_accordId];
+        require(_data.endTimestamp + _data.property.cleaningDuration() < block.timestamp);
+        _data.property.userTerminate(_accordId);
+
+        AccordMutable memory _accord = accords[_accordId];
+        uint8 _hardSoft;
+        /// soft = 1; hard = 0;
+        if (!_accord.propertyStrikeOut) { _hardSoft = 1; }
+
+        if (_accord.strikes < STRIKE_OUT) {
+            uint16 _discount = hardSoftPenalization[_accord.strikes][_hardSoft];
+            uint256 _amount = 1 * uint(_discount);
+            uint256 _amountEth = 1;
+            _userWithdraw(_accordId, _amount, _amountEth);
+        }
+    }
+
+    function _userWithdraw(bytes32 _accordId, uint256 _amount, uint256 _amountEth) private view returns (uint256) {
+        /// TODO
+
+        AccordMutable memory _accord = accords[_accordId];
+        return _amount + _accord.balance + _amountEth;
+    }
+
+    function triggerStrikeOut(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {
+        AccordMutable memory _accord = accords[_accordId];
+
+        /// TODO: change error
+        if (_accord.propertyStrikeOut) { revert Unauthorized(); }
+
+        _accord.propertyStrikeOut = true;
+        _accord.strikes = _strikes;
+
+        accords[_accordId] = _accord;
+    }
+
+    function softNoteStrikes(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {
+        AccordMutable memory _accord = accords[_accordId];
+
+        /// TODO: change error
+        if (_accord.propertyStrikeOut) { revert Unauthorized(); }
+
+        _accord.strikes = _strikes;
+
+        accords[_accordId] = _accord;
+    }
+
+    /// ******************
+    /// * View functions *
+    /// ******************
+
     function calculateDue(bytes32 _accordId) public view returns (
         uint256 _payed,
         uint256 _due,
@@ -188,14 +300,22 @@ contract RentController is IRentController, Treasurable {
         return _calculateDue(_data);
     }
 
-    function getNowPercentPeriod(bytes32 _accordId) public view returns(uint16, uint8) {
+    function getNowPercentPeriod(bytes32 _accordId) public view returns(
+        uint16 _nowPercent,
+        uint8 _currentPeriod
+    ) {
         AccordImmutable memory _data = accordsData[_accordId];
-        uint16 _percent = _getNowPercent(_data);
+        _nowPercent = _getNowPercent(_data);
 
         /// TODO: TEST
-        uint _currentPeriod = (uint(_percent) * uint(_data.dividedInto)) / ONE_HUNDRED;
-        return (_percent, uint8(_currentPeriod));
+        _currentPeriod = uint8(
+            (uint(_nowPercent) * uint(_data.dividedInto)) / uint(ONE_HUNDRED)
+        );
     }
+
+    /// *********************
+    /// * Private functions *
+    /// *********************
 
     function _calculateDue(
         AccordImmutable memory _data
@@ -253,41 +373,4 @@ contract RentController is IRentController, Treasurable {
         return (_payed, _coveredPercent, _period);
     }
 
-    /// @param _periodsOfValidity how many period (monthds, weeks) the user want to pay
-    function payKey(
-        bytes32 _accordId,
-        uint8 _periodsOfValidity,
-        uint256 _amount
-    ) public onlyUser(_accordId) {
-        require(_periodsOfValidity > 0);
-        AccordImmutable memory _data = accordsData[_accordId];
-        AccordMutable memory _accord = accords[_accordId];
-
-        require(block.timestamp < _data.endTimestamp);
-
-        (, uint256 _due, , uint8 _nextPeriod) = _calculateDue(_data);
-
-        if (_due == 0) { revert AccordIsFullyPayed(); }
-
-        uint256 _currentBalance = _accord.balance;
-        uint256 _lastBalance = _currentBalance + _amount;
-        _accord.balance = _lastBalance;
-
-        uint256 toPay = _periodsOfValidity * _data.rentAmount;
-        if (toPay > _lastBalance) { revert NotEnoughBalance(); }
-
-        if (toPay > _due) { revert DoNotOverPay(); }
-
-        uint256 forTreasury;
-        for (uint8 i = _nextPeriod; i < (_nextPeriod + _periodsOfValidity); ++i) {
-            userPayments[_accordId][i] = _data.rentAmount;
-            _accord.balance -= _data.rentAmount;
-            totalBalance -= _data.rentAmount;
-            forTreasury += _data.rentAmount;
-        }
-
-        local.safeTransferFrom(msg.sender, address(this), _amount);
-        local.safeIncreaseAllowance(address(treasury), forTreasury);
-        treasury.payRent(forTreasury, _data.owner, address(_data.property), _data.property.rentFee());
-    }
 }
