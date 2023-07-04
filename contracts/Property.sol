@@ -76,6 +76,14 @@ contract Property is
         _;
     }
 
+    modifier onlyControllerAdmin() {
+        if (msg.sender == address(controller) || hasRole(ADMIN_ROLE, msg.sender)) {
+            _;
+        } else {
+            revert Unauthorized();
+        }
+    }
+
     modifier uniqueId(bytes32 _accordId) {
         if (!_isUnique(_accordId)) { revert DuplicatedAccordId(); }
         _;
@@ -237,11 +245,7 @@ contract Property is
         }
     }
 
-    function terminate(bytes32 _accordId) external onlyRole(OPERATOR_ROLE) {
-        _terminate(_accordId);
-    }
-
-    function userTerminate(bytes32 _accordId) external onlyController {
+    function terminate(bytes32 _accordId) external onlyControllerAdmin {
         _terminate(_accordId);
     }
 

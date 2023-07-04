@@ -64,6 +64,10 @@ contract RentController is IRentController, Treasurable {
     struct AccordMutable {
         bool propertyStrikeOut;
 
+        /// if both bools are false, then the upfrontPayment remains in accord balance.
+        bool userWithdrawUpfront;
+        bool propertyWithdrawUpfront;
+
         /// @dev if propertyStrikeOut is true, strikes is immutable.
         uint8 strikes;
 
@@ -241,26 +245,90 @@ contract RentController is IRentController, Treasurable {
     function userTerminate(bytes32 _accordId) public onlyUser(_accordId) {
         AccordImmutable memory _data = accordsData[_accordId];
         require(_data.endTimestamp + _data.property.cleaningDuration() < block.timestamp);
-        _data.property.userTerminate(_accordId);
+
+        /// This checks/revert if the accord status is not "Confirmed"
+        _data.property.terminate(_accordId);
 
         AccordMutable memory _accord = accords[_accordId];
-        uint8 _hardSoft;
-        /// soft = 1; hard = 0;
-        if (!_accord.propertyStrikeOut) { _hardSoft = 1; }
+        (
+            uint256 _userAmount,
+            uint256 _userAmountEth,
+            ,
+        ) = _calculateAvailableUpfrontAmount(_data, _accord);
 
-        if (_accord.strikes < STRIKE_OUT) {
-            uint16 _discount = hardSoftPenalization[_accord.strikes][_hardSoft];
-            uint256 _amount = 1 * uint(_discount);
-            uint256 _amountEth = 1;
-            _userWithdraw(_accordId, _amount, _amountEth);
+        if (_userAmount > 0 || _userAmountEth > 0) {
+            _userWithdrawUpfront(_accordId, _data.user, _userAmount, _userAmountEth);
         }
     }
 
-    function _userWithdraw(bytes32 _accordId, uint256 _amount, uint256 _amountEth) private view returns (uint256) {
-        /// TODO
+    function _calculateAvailableUpfrontAmount(
+        AccordImmutable memory _data,
+        AccordMutable memory _accord
+    ) private view returns (
+        uint256 _userAmount,
+        uint256 _userAmountEth,
+        uint256 _propertyAmount,
+        uint256 _propertyAmountEth
+    ) {
+        /// soft = 1; hard = 0;
+        uint8 _hardSoft;
+        if (!_accord.propertyStrikeOut) { _hardSoft = 1; }
 
+        uint16 _penalization = _getPenalizationPercent(_accord.strikes, _hardSoft);
+
+        _propertyAmount = _getPenalization(_data.upfrontPayment, _penalization);
+        _propertyAmountEth = _getPenalization(_data.upfrontPaymentEth, _penalization);
+        _userAmount = _data.upfrontPayment - _propertyAmount;
+        _userAmountEth = _data.upfrontPaymentEth - _propertyAmountEth;
+
+        if (_accord.userWithdrawUpfront) { _userAmount = 0; _userAmountEth = 0; }
+        if (_accord.propertyWithdrawUpfront) { _propertyAmount = 0; _propertyAmountEth = 0; }
+    }
+
+    /// @notice the result of the penalization goes to the property
+    function _getPenalization(
+        uint256 _amount,
+        uint16 _penalization
+    ) private pure returns (uint256) {
+        return (_amount * uint256(_penalization)) / uint256(ONE_HUNDRED);
+    }
+
+    function _getPenalizationPercent(
+        uint8 _strikes,
+        uint8 _hardSoft
+    ) private view returns (uint16) {
+        if (_strikes == 0) {
+            return 0;
+        } else if (_strikes < STRIKE_OUT) {
+            return hardSoftPenalization[_strikes][_hardSoft];
+        } else {
+            return hardSoftPenalization[STRIKE_OUT][_hardSoft];
+        }
+    }
+
+    function _userWithdrawUpfront(
+        bytes32 _accordId,
+        address _user,
+        uint256 _amount,
+        uint256 _amountEth
+    ) private {
         AccordMutable memory _accord = accords[_accordId];
-        return _amount + _accord.balance + _amountEth;
+
+        _accord.userWithdrawUpfront = true;
+
+        if (_amount > 0) {
+            _accord.balance -= _amount;
+            local.safeTransfer(_user, _amount);
+
+        }
+
+        if (_amountEth > 0) {
+            _accord.balanceEth -= _amountEth;
+            payable(_user).transfer(_amountEth);
+        }
+
+        /// Storage
+        accords[_accordId] = _accord;
     }
 
     function triggerStrikeOut(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {

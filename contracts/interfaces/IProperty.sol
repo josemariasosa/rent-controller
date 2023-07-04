@@ -24,5 +24,5 @@ interface IProperty is ICheckTime {
     function confirmedByUser(bytes32 _accordId) external;
 
     function rentFee() external view returns(uint16);
-    function userTerminate(bytes32 _accordId) external;
+    function terminate(bytes32 _accordId) external;
 }
