@@ -77,6 +77,7 @@ contract RentController is IRentController, Treasurable {
         /// Of course `balance` is in `local` currency, as everything else.
         uint256 balance;
 
+        // All approves are given before the rent
         bool approvedByUser;
         bool approvedByProperty;
 
@@ -148,7 +149,8 @@ contract RentController is IRentController, Treasurable {
         IProperty _property,
         address _user,
         string memory _accordSlug
-    ) public {
+    ) external {
+        /// TODO: pay tribute to the treasury to allow proposeAccord.
         require(_dividedInto >= STRIKE_OUT);
 
         AccordImmutable memory _data;
@@ -174,20 +176,13 @@ contract RentController is IRentController, Treasurable {
         accordsData[hash_id] = _data;
     }
 
-    function confirmApprovedByProperty(bytes32 _accordId) public onlyProperty(_accordId) {
-        AccordMutable storage _accord = accords[_accordId];
-        _accord.approvedByProperty = true;
-    }
-
     /// @param _amount denominated in local
-    function acceptAccord(bytes32 _accordId, uint256 _amount) public payable {
+    function acceptAccord(bytes32 _accordId, uint256 _amount) external payable {
         AccordImmutable memory _data = accordsData[_accordId];
-        address _user = _data.user;
         require(block.timestamp < _data.validUntil);
 
-        // address _user = accordsData[_accordId].user;
         AccordMutable memory _accord = accords[_accordId];
-        if (msg.sender != _user) { revert Unauthorized(); }
+        if (msg.sender != data.user) { revert Unauthorized(); }
         require(_accord.approvedByProperty);
         require(_amount >= _data.upfrontPayment);
         require(msg.value >= _data.upfrontPaymentEth);
@@ -200,17 +195,20 @@ contract RentController is IRentController, Treasurable {
         totalBalance += _amount;
         totalBalanceEth += msg.value;
 
+        /// Storage.
+        accords[_accordId] = _accord;
+
         local.safeTransferFrom(msg.sender, address(this), _amount);
         _data.property.confirmedByUser(_accordId);
     }
 
-    /// @param _periodsOfValidity how many period (monthds, weeks) the user want to pay
+    /// @param _periodsToPay how many period (monthds, weeks) the user want to pay
     function payKey(
         bytes32 _accordId,
-        uint8 _periodsOfValidity,
+        uint8 _periodsToPay,
         uint256 _amount
     ) external onlyUser(_accordId) {
-        require(_periodsOfValidity > 0);
+        require(_periodsToPay > 0);
         AccordImmutable memory _data = accordsData[_accordId];
         AccordMutable memory _accord = accords[_accordId];
 
@@ -224,25 +222,28 @@ contract RentController is IRentController, Treasurable {
         uint256 _lastBalance = _currentBalance + _amount;
         _accord.balance = _lastBalance;
 
-        uint256 toPay = _periodsOfValidity * _data.rentAmount;
+        uint256 toPay = _periodsToPay * _data.rentAmount;
         if (toPay > (_lastBalance - _data.upfrontPayment)) { revert NotEnoughBalance(); }
 
         if (toPay > _due) { revert DoNotOverPay(); }
 
         uint256 forTreasury;
-        for (uint8 i = _nextPeriod; i < (_nextPeriod + _periodsOfValidity); ++i) {
+        for (uint8 i = _nextPeriod; i < (_nextPeriod + _periodsToPay); ++i) {
             userPayments[_accordId][i] = _data.rentAmount;
             _accord.balance -= _data.rentAmount;
             totalBalance -= _data.rentAmount;
             forTreasury += _data.rentAmount;
         }
 
+        /// Storage.
+        accords[_accordId] = _accord;
+
         local.safeTransferFrom(msg.sender, address(this), _amount);
         local.safeIncreaseAllowance(address(treasury), forTreasury);
         treasury.payRent(forTreasury, _data.owner, address(_data.property), _data.property.rentFee());
     }
 
-    function userTerminate(bytes32 _accordId) public onlyUser(_accordId) {
+    function userTerminate(bytes32 _accordId) external onlyUser(_accordId) {
         AccordImmutable memory _data = accordsData[_accordId];
         require(_data.endTimestamp + _data.property.cleaningDuration() < block.timestamp);
 
@@ -260,6 +261,69 @@ contract RentController is IRentController, Treasurable {
             _userWithdrawUpfront(_accordId, _data.user, _userAmount, _userAmountEth);
         }
     }
+
+    /// **********************
+    /// * Property functions *
+    /// **********************
+
+    function confirmApprovedByProperty(bytes32 _accordId) public onlyProperty(_accordId) {
+        AccordMutable storage _accord = accords[_accordId];
+        _accord.approvedByProperty = true;
+    }
+
+    function triggerStrikeOut(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {
+        AccordMutable memory _accord = accords[_accordId];
+
+        /// TODO: change error
+        if (_accord.propertyStrikeOut) { revert Unauthorized(); }
+
+        _accord.propertyStrikeOut = true;
+        _accord.strikes = _strikes;
+
+        accords[_accordId] = _accord;
+    }
+
+    function softNoteStrikes(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {
+        AccordMutable memory _accord = accords[_accordId];
+
+        /// TODO: change error
+        if (_accord.propertyStrikeOut) { revert Unauthorized(); }
+
+        _accord.strikes = _strikes;
+
+        accords[_accordId] = _accord;
+    }
+
+    /// ******************
+    /// * View functions *
+    /// ******************
+
+    function calculateDue(bytes32 _accordId) public view returns (
+        uint256 _payed,
+        uint256 _due,
+        uint16 _coveredPercent,
+        uint8 _nextPeriod
+    ) {
+        AccordImmutable memory _data = accordsData[_accordId];
+        return _calculateDue(_data);
+    }
+
+    function getNowPercentPeriod(bytes32 _accordId) public view returns(
+        uint16 _nowPercent,
+        uint8 _currentPeriod
+    ) {
+        AccordImmutable memory _data = accordsData[_accordId];
+        _nowPercent = _getNowPercent(_data);
+
+        /// TODO: TEST
+        _currentPeriod = uint8(
+            (uint(_nowPercent) * uint(_data.dividedInto)) / uint(ONE_HUNDRED)
+        );
+    }
+
+    /// *********************
+    /// * Private functions *
+    /// *********************
 
     function _calculateAvailableUpfrontAmount(
         AccordImmutable memory _data,
@@ -330,60 +394,6 @@ contract RentController is IRentController, Treasurable {
         /// Storage
         accords[_accordId] = _accord;
     }
-
-    function triggerStrikeOut(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {
-        AccordMutable memory _accord = accords[_accordId];
-
-        /// TODO: change error
-        if (_accord.propertyStrikeOut) { revert Unauthorized(); }
-
-        _accord.propertyStrikeOut = true;
-        _accord.strikes = _strikes;
-
-        accords[_accordId] = _accord;
-    }
-
-    function softNoteStrikes(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {
-        AccordMutable memory _accord = accords[_accordId];
-
-        /// TODO: change error
-        if (_accord.propertyStrikeOut) { revert Unauthorized(); }
-
-        _accord.strikes = _strikes;
-
-        accords[_accordId] = _accord;
-    }
-
-    /// ******************
-    /// * View functions *
-    /// ******************
-
-    function calculateDue(bytes32 _accordId) public view returns (
-        uint256 _payed,
-        uint256 _due,
-        uint16 _coveredPercent,
-        uint8 _nextPeriod
-    ) {
-        AccordImmutable memory _data = accordsData[_accordId];
-        return _calculateDue(_data);
-    }
-
-    function getNowPercentPeriod(bytes32 _accordId) public view returns(
-        uint16 _nowPercent,
-        uint8 _currentPeriod
-    ) {
-        AccordImmutable memory _data = accordsData[_accordId];
-        _nowPercent = _getNowPercent(_data);
-
-        /// TODO: TEST
-        _currentPeriod = uint8(
-            (uint(_nowPercent) * uint(_data.dividedInto)) / uint(ONE_HUNDRED)
-        );
-    }
-
-    /// *********************
-    /// * Private functions *
-    /// *********************
 
     function _calculateDue(
         AccordImmutable memory _data
