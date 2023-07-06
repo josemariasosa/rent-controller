@@ -120,6 +120,8 @@ contract Property is
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
+    receive() external payable { deposit(); }
+
     /// @param _until accord valid until timestamp in seconds.
     /// @param _start timestamp in seconds.
     /// @param _end timestamp in seconds.
@@ -168,6 +170,7 @@ contract Property is
             _reservation.status = Status.Proposed;
         }
 
+        /// Storage
         reservations[_accordId] = _reservation;
     }
 
@@ -187,16 +190,6 @@ contract Property is
             approvedHashIds.add(_accordId);
             _notifyAprovementToController(_accordId);
         }
-    }
-
-    function confirmedByUser(bytes32 _accordId) public onlyController {
-        Reservation storage _reservation = reservations[_accordId];
-
-        require(_reservation.status == Status.Approved);
-        _reservation.status = Status.Confirmed;
-
-        approvedHashIds.remove(_accordId);
-        confirmedHashIds.add(_accordId);
     }
 
     function getAvailableLocalBalance() public view returns (uint256) {
@@ -245,8 +238,32 @@ contract Property is
         }
     }
 
+    /// ************************
+    /// * Controller functions *
+    /// ************************
+
+    /// @notice This function can be called by EOA (admin) and/or by the
+    /// Rent Controller contract.
     function terminate(bytes32 _accordId) external onlyControllerAdmin {
         _terminate(_accordId);
+    }
+
+    function confirmedByUser(bytes32 _accordId) public onlyController {
+        Reservation storage _reservation = reservations[_accordId];
+
+        require(_reservation.status == Status.Approved);
+        _reservation.status = Status.Confirmed;
+
+        approvedHashIds.remove(_accordId);
+        confirmedHashIds.add(_accordId);
+    }
+
+    /// @notice this contract only works with ether, f**k fiatsys.
+    /// who deposits? a property can manage all their expenses frome here!
+    /// If the property wants local currency, it should interact with
+    /// the centauri treasury, the rent is payed in local currency.
+    function deposit() public payable {
+        balanceEth += msg.value;
     }
 
     /// *********************
@@ -257,13 +274,29 @@ contract Property is
         require(reservations[_accordId].endTimestamp <= block.timestamp);
         require(reservations[_accordId].status == Status.Confirmed);
         uint8 _strikes = calculateStrikes(_accordId);
-        if (_strikes < controller.STRIKE_OUT()) {
+        IRentController _controller = controller;
+        if (_strikes < _controller.STRIKE_OUT()) {
              Reservation storage _reservation = reservations[_accordId];
             _reservation.status = Status.Success;
 
             _softNoteStrikes(_accordId, _strikes);
         } else {
             _triggerStrikeOut(_accordId, _strikes);
+        }
+    }
+
+    function _propertyTerminate(
+        IRentController _controller,
+        bytes32 _accordId
+    ) private {
+        (
+            uint256 _propertyAmount,
+            uint256 _propertyAmountEth
+        ) = _controller.calculateAvailableUpfrontAmount(_accordId);
+
+        if (_propertyAmount > 0 || _propertyAmountEth > 0) {
+            _controller.propertyWithdrawUpfront(
+                _accordId, address(this), _propertyAmount, _propertyAmountEth);
         }
     }
 

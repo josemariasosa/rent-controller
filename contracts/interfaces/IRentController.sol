@@ -27,5 +27,13 @@ interface IRentController {
     function triggerStrikeOut(bytes32 _accordId, uint8 _strikes) external;
     function softNoteStrikes(bytes32 _accordId, uint8 _strikes) external;
 
+    function calculateAvailableUpfrontAmount(bytes32 _accordId) external view returns (uint256 _propertyAmount, uint256 _propertyAmountEth);
+    
+    function propertyWithdrawUpfront(
+        bytes32 _accordId,
+        address _property,
+        uint256 _propertyAmount,
+        uint256 _propertyAmountEth) external;
+
     function STRIKE_OUT() external view returns (uint8);
 }

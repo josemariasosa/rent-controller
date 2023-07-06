@@ -310,6 +310,24 @@ contract RentController is IRentController, Treasurable {
         accords[_accordId] = _accord;
     }
 
+    function calculateAvailableUpfrontAmount(
+        bytes32 _accordId
+    ) public onlyProperty(_accordId) view returns (
+        // TODO: should i return them?
+        // uint256 _userAmount,
+        // uint256 _userAmountEth,
+        uint256 _propertyAmount,
+        uint256 _propertyAmountEth
+    ) {
+        AccordImmutable memory _data = accordsData[_accordId];
+        AccordMutable memory _accord = accords[_accordId];
+        (
+            ,,
+            _propertyAmount,
+            _propertyAmountEth
+        ) = _calculateAvailableUpfrontAmount(_data, _accord);
+    }
+
     /// ******************
     /// * View functions *
     /// ******************
@@ -385,6 +403,21 @@ contract RentController is IRentController, Treasurable {
         } else {
             return hardSoftPenalization[STRIKE_OUT][_hardSoft];
         }
+    }
+
+
+    function propertyWithdrawUpfront(
+        bytes32 _accordId,
+        address _property,
+        uint256 _propertyAmount,
+        uint256 _propertyAmountEth
+    ) public onlyProperty(_accordId) {
+        _userWithdrawUpfront(
+            _accordId,
+            _property,
+            _propertyAmount,
+            _propertyAmountEth
+        );
     }
 
     /// During the validity of the contract, or until a property strike-out,
