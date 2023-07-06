@@ -9,11 +9,13 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 interface IRentController {
 
-    error Unauthorized();
-    error NotEnoughBalance();
     error AccordIsFullyPayed();
-    error InvalidLength();
+    error AlreadyOut();
     error DoNotOverPay();
+    error InvalidLength();
+    error NotEnoughBalance();
+    error Unauthorized();
+    error WaitForTheProperty();
 
     // function checkAvailability(uint64 _start, uint64 _end) external view returns (bool);
     // function createReservation(address _caller, uint64 _start, uint64 _end) external returns (bool);

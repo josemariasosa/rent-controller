@@ -51,7 +51,8 @@ contract RentController is IRentController, Treasurable {
 
         uint256 rentAmount;
 
-        /// Two currencies are needed.
+        /// Two currencies are needed. This payment will be held by the contract until
+        /// the contract is finished with `endTimestamp` or a `propertyStrikeOut`.
         uint256 upfrontPaymentEth;
         uint256 upfrontPayment;
 
@@ -80,7 +81,6 @@ contract RentController is IRentController, Treasurable {
         // All approves are given before the rent
         bool approvedByUser;
         bool approvedByProperty;
-
     }
 
     // // /// This mappings are HEAVY stuff, they should evenctually move off-chain.
@@ -108,7 +108,7 @@ contract RentController is IRentController, Treasurable {
         _;
     }
 
-    /// @param _hardSoft looks like [[3000, 1500], [6000, 3000]]
+    /// @param _hardSoft looks like [[3000, 1500], [6000, 2000]]
     ///                              [1rs strike]  [2nd strike]
     /// by policy: Strike Out equals [ONE_HUNDRED, ONE_HUNDRED]
     constructor(
@@ -182,7 +182,7 @@ contract RentController is IRentController, Treasurable {
         require(block.timestamp < _data.validUntil);
 
         AccordMutable memory _accord = accords[_accordId];
-        if (msg.sender != data.user) { revert Unauthorized(); }
+        if (msg.sender != _data.user) { revert Unauthorized(); }
         require(_accord.approvedByProperty);
         require(_amount >= _data.upfrontPayment);
         require(msg.value >= _data.upfrontPaymentEth);
@@ -235,7 +235,7 @@ contract RentController is IRentController, Treasurable {
             forTreasury += _data.rentAmount;
         }
 
-        /// Storage.
+        /// Storage
         accords[_accordId] = _accord;
 
         local.safeTransferFrom(msg.sender, address(this), _amount);
@@ -243,11 +243,18 @@ contract RentController is IRentController, Treasurable {
         treasury.payRent(forTreasury, _data.owner, address(_data.property), _data.property.rentFee());
     }
 
+    /// @notice The User must wait for the cleaning period in order to allow the property
+    /// to visit and assert the place.
+    /// @dev Important to remember that `_calculateAvailableUpfrontAmount` works only
+    /// after the `Status.Confirmed` is closed with: `StrikeOut` or `Success`.
     function userTerminate(bytes32 _accordId) external onlyUser(_accordId) {
         AccordImmutable memory _data = accordsData[_accordId];
-        require(_data.endTimestamp + _data.property.cleaningDuration() < block.timestamp);
+        if (block.timestamp < _data.endTimestamp + _data.property.cleaningDuration()) {
+            revert WaitForTheProperty();
+        }
 
-        /// This checks/revert if the accord status is not "Confirmed"
+        /// Check with revert if the accord status is not "Confirmed", which at this
+        /// point is the expected `Status`.
         _data.property.terminate(_accordId);
 
         AccordMutable memory _accord = accords[_accordId];
@@ -266,31 +273,40 @@ contract RentController is IRentController, Treasurable {
     /// * Property functions *
     /// **********************
 
-    function confirmApprovedByProperty(bytes32 _accordId) public onlyProperty(_accordId) {
+    function confirmApprovedByProperty(
+        bytes32 _accordId
+    ) public onlyProperty(_accordId) {
         AccordMutable storage _accord = accords[_accordId];
         _accord.approvedByProperty = true;
     }
 
-    function triggerStrikeOut(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {
+    /// 1/2 More or equal to the amount stored in `STRIKE_OUT`. It's OUT!
+    function triggerStrikeOut(
+        bytes32 _accordId,
+        uint8 _strikes
+    ) external onlyProperty(_accordId) {
         AccordMutable memory _accord = accords[_accordId];
-
-        /// TODO: change error
-        if (_accord.propertyStrikeOut) { revert Unauthorized(); }
+        if (_accord.propertyStrikeOut) { revert AlreadyOut(); }
 
         _accord.propertyStrikeOut = true;
         _accord.strikes = _strikes;
 
+        /// Storage
         accords[_accordId] = _accord;
     }
 
-    function softNoteStrikes(bytes32 _accordId, uint8 _strikes) external onlyProperty(_accordId) {
+    /// 2/2 The property decides to penalize the user or wait until the end
+    /// of the contract. It's a BALL!
+    function softNoteStrikes(
+        bytes32 _accordId,
+        uint8 _strikes
+    ) external onlyProperty(_accordId) {
         AccordMutable memory _accord = accords[_accordId];
-
-        /// TODO: change error
-        if (_accord.propertyStrikeOut) { revert Unauthorized(); }
+        if (_accord.propertyStrikeOut) { revert AlreadyOut(); }
 
         _accord.strikes = _strikes;
 
+        /// Storage
         accords[_accordId] = _accord;
     }
 
@@ -325,6 +341,7 @@ contract RentController is IRentController, Treasurable {
     /// * Private functions *
     /// *********************
 
+    /// @notice ASSUME that the status is the correct to avoid multiple checks.
     function _calculateAvailableUpfrontAmount(
         AccordImmutable memory _data,
         AccordMutable memory _accord
@@ -370,6 +387,8 @@ contract RentController is IRentController, Treasurable {
         }
     }
 
+    /// During the validity of the contract, or until a property strike-out,
+    /// ALL OF THE upfront payment should remain in the `_accord.balance`.
     function _userWithdrawUpfront(
         bytes32 _accordId,
         address _user,
@@ -380,14 +399,17 @@ contract RentController is IRentController, Treasurable {
 
         _accord.userWithdrawUpfront = true;
 
+        /// ERC20 transfer
         if (_amount > 0) {
             _accord.balance -= _amount;
+            totalBalance -= _amount;
             local.safeTransfer(_user, _amount);
 
         }
 
         if (_amountEth > 0) {
             _accord.balanceEth -= _amountEth;
+            totalBalanceEth -= _amountEth;
             payable(_user).transfer(_amountEth);
         }
 
