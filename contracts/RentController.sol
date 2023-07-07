@@ -13,6 +13,9 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 /// @title Rent Controller Captain ⭐.
 /// @author alpha-centauri.sats
 
+import "hardhat/console.sol";
+
+
 contract RentController is IRentController, Treasurable, PayServices {
 
     using EnumerableSet for EnumerableSet.Bytes32Set;
@@ -30,7 +33,7 @@ contract RentController is IRentController, Treasurable, PayServices {
     /// all balances are wrong for the new local currency.
     IERC20 immutable public local;
 
-    ICentauriTreasury public treasury;
+    ICentauriTreasury immutable public treasury;
 
     /// Valid total balance in this contract.
     uint256 public totalBalance;
@@ -113,8 +116,8 @@ contract RentController is IRentController, Treasurable, PayServices {
     ///                              [1rs strike]  [2nd strike]
     /// by policy: Strike Out equals [ONE_HUNDRED, ONE_HUNDRED]
     constructor(
-        uint64 _createAccordPrice,
-        uint64 _createAccordPriceEth,
+        uint256 _createAccordPrice,
+        uint256 _createAccordPriceEth,
         IERC20 _localCurrency,
         ICentauriTreasury _treasury,
         uint16[2][] memory _hardSoft
@@ -123,7 +126,7 @@ contract RentController is IRentController, Treasurable, PayServices {
         treasury = _treasury;
 
         if ((_hardSoft.length + 1) != STRIKE_OUT) { revert InvalidLength(); }
-        for (uint8 i = 0; i < STRIKE_OUT; ++i) {
+        for (uint8 i = 0; i < (STRIKE_OUT-1); ++i) {
             uint16 _hard = _hardSoft[i][0];
             uint16 _soft = _hardSoft[i][1];
             require(_hard >= _soft);
@@ -347,6 +350,10 @@ contract RentController is IRentController, Treasurable, PayServices {
     /// ******************
     /// * View functions *
     /// ******************
+
+    function getTotalAccords() public view returns (uint256) {
+        return accordsHashIds.length();
+    }
 
     function calculateDue(bytes32 _accordId) public view returns (
         uint256 _payed,

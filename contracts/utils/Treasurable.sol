@@ -14,8 +14,8 @@ contract Treasurable {
  
 
     constructor(
-        uint64 _createAccordPrice,
-        uint64 _createAccordPriceEth
+        uint256 _createAccordPrice,
+        uint256 _createAccordPriceEth
     ) {
         createAccordPrice = _createAccordPrice;
         createAccordPriceEth = _createAccordPriceEth;

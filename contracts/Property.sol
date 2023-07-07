@@ -35,7 +35,7 @@ contract Property is
     /// @notice var denominated in basis points
     uint16 public rentFee;
 
-    ICentauriTreasury public treasury;
+    ICentauriTreasury public immutable treasury;
     IERC20 immutable public local;
     IRentController immutable public controller;
 
@@ -96,22 +96,21 @@ contract Property is
         }
     }
 
+    /// @param _rentFee represents a percentage of the total Rent payed by the user.
     constructor(
-        IERC20 _localCurrency,
-        IRentController _controller,
         uint16 _rentFee,
         uint64 _cleaningDuration,
         uint64 _minStayDuration,
         uint64 _maxAnticipationDuration,
-        address _operator,
-        ICentauriTreasury _treasury
+        IRentController _controller,
+        address _operator
     )
         CheckTime(_cleaningDuration, _minStayDuration, _maxAnticipationDuration)
         BasisPoint(MAX_RENT_FEE_BASIS_POINT)
     {
-        local = _localCurrency;
+        local = _controller.local();
         controller = _controller;
-        treasury = _treasury;
+        treasury = _controller.treasury();
         rentFee = _rentFee;
 
         _grantRole(ADMIN_ROLE, msg.sender);
@@ -242,7 +241,7 @@ contract Property is
     /// ************************
 
     /// @notice This function can be called by EOA (admin) and/or by the
-    /// Rent Controller contract.
+    /// Rent Controller contract. It should ONLY run once per `Status.Confirmed` accord.
     function terminate(bytes32 _accordId) external onlyControllerAdmin {
         _terminate(_accordId);
     }
@@ -263,6 +262,30 @@ contract Property is
     /// the centauri treasury, the rent is payed in local currency.
     function deposit() public payable {
         balanceEth += msg.value;
+    }
+
+    /// ******************
+    /// * View functions *
+    /// ******************
+
+    function getTotalAccords() public view returns (uint256) {
+        return (
+            proposedHashIds.length()
+            + approvedHashIds.length()
+            + confirmedHashIds.length()
+        );
+    }
+
+    function getTotalAccordsDetails() public view returns (
+        uint256 _proposed,
+        uint256 _approved,
+        uint256 _confirmed
+    ) {
+        return (
+            proposedHashIds.length(),
+            approvedHashIds.length(),
+            confirmedHashIds.length()
+        );
     }
 
     /// *********************

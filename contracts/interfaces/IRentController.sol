@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.18;
 
+import "./ICentauriTreasury.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
@@ -36,4 +37,6 @@ interface IRentController {
         uint256 _propertyAmountEth) external;
 
     function STRIKE_OUT() external view returns (uint8);
+    function local() external view returns (IERC20);
+    function treasury() external view returns (ICentauriTreasury);
 }
