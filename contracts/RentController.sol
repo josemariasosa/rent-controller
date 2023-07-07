@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.18;
 
+import "./interfaces/ICentauriTreasury.sol";
 import "./interfaces/IProperty.sol";
 import "./interfaces/IRentController.sol";
-import "./interfaces/ICentauriTreasury.sol";
 import "./utils/Treasurable.sol";
+import "./utils/PayServices.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-// Uncomment this line to use console.log
-// import "hardhat/console.sol";
+/// @title Rent Controller Captain ⭐.
+/// @author alpha-centauri.sats
 
-contract RentController is IRentController, Treasurable {
+contract RentController is IRentController, Treasurable, PayServices {
 
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeERC20 for IERC20;
@@ -328,6 +329,21 @@ contract RentController is IRentController, Treasurable {
         ) = _calculateAvailableUpfrontAmount(_data, _accord);
     }
 
+    /// @notice this is done after the last Status has achieved (StrikeOut or Success).
+    function propertyWithdrawUpfront(
+        bytes32 _accordId,
+        address _property,
+        uint256 _propertyAmount,
+        uint256 _propertyAmountEth
+    ) public onlyProperty(_accordId) {
+        _userWithdrawUpfront(
+            _accordId,
+            _property,
+            _propertyAmount,
+            _propertyAmountEth
+        );
+    }
+
     /// ******************
     /// * View functions *
     /// ******************
@@ -406,19 +422,7 @@ contract RentController is IRentController, Treasurable {
     }
 
 
-    function propertyWithdrawUpfront(
-        bytes32 _accordId,
-        address _property,
-        uint256 _propertyAmount,
-        uint256 _propertyAmountEth
-    ) public onlyProperty(_accordId) {
-        _userWithdrawUpfront(
-            _accordId,
-            _property,
-            _propertyAmount,
-            _propertyAmountEth
-        );
-    }
+
 
     /// During the validity of the contract, or until a property strike-out,
     /// ALL OF THE upfront payment should remain in the `_accord.balance`.

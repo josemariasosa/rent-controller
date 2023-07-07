@@ -10,8 +10,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-// Uncomment this line to use console.log
-// import "hardhat/console.sol";
+/// @title Rent Controller compatible property.
+/// @author alpha-centauri.sats 🌙
 
 contract Property is
     IProperty,
@@ -19,7 +19,6 @@ contract Property is
     CheckTime,
     BasisPoint
 {
-
     using EnumerableSet for EnumerableSet.Bytes32Set;
 
     uint8 constant public MAX_RESERVATIONS = 10;
