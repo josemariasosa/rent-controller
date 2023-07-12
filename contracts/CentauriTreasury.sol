@@ -20,21 +20,28 @@ contract CentauriTreasury is
     Pausable,
     AccessControl
 {
+    error NotImplemented();
+
     using SafeERC20 for IERC20;
 
     uint16 public constant ONE_HUNDRED = 10_000;
 
+    uint16 public percentForHodlers;
+
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 
-    IRentController public controller;
+    mapping(address => bool) public isControllerAvailable;
+    // IRentController public controller;
 
-    modifier onlyController() {
-        require(msg.sender == address(controller));
+    modifier onlyAvailableController() {
+        require(isControllerAvailable[msg.sender]);
         _;
     }
 
+    /// @param _percentForHodlers some amount that remains for the _shares hodlers.
     constructor(
+        uint16 _percentForHodlers,
         address _operator,
         IERC20 _local,
         string memory _centName,
@@ -47,6 +54,8 @@ contract CentauriTreasury is
             revert InvalidZeroAddress();
         }
 
+        percentForHodlers = _percentForHodlers;
+
         _grantRole(ADMIN_ROLE, msg.sender);
         _grantRole(OPERATOR_ROLE, _operator);
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -58,41 +67,55 @@ contract CentauriTreasury is
     // * Admin functions *
     // *******************
 
-    function initializeController(
-        IRentController _controller
-    ) external onlyRole(ADMIN_ROLE) {
-        if (address(controller) != address(0)) { revert ContractAlreadyInitialized(); }
-        if (address(_controller) == address(0)) { revert InvalidZeroAddress(); }
-
-        controller = _controller;
-
-        // // Get fully operational for the first time.
-        // updateContractOperation(true);
-
-        // emit ContractInitialized(
-        //     address(_stakingManager),
-        //     address(_liquidityPool),
-        //     msg.sender
-        // );
-    }
-
     function updateController(
+        bool _isAvailable,
         IRentController _controller
     ) external onlyRole(ADMIN_ROLE) {
-        if (address(_controller) == address(0)) { revert InvalidZeroAddress(); }
-        if (address(controller) == address(0)) { revert ContractNotInitialized(); }
-        controller = _controller;
+        address ix = address(_controller);
+        if (_isAvailable) {
+            /// Initialization of a new rent controller.
+            require(!isControllerAvailable[ix], "ALLREADY_AVAILABLE");
+            isControllerAvailable[ix] = true;
+        } 
 
-        // emit NewManagerUpdate(address(_controller), msg.sender);
+        /// WARNING: it should not be that easy to remove a controller.
+        /// run some checks here-n-there.
+        revert NotImplemented();
     }
+
+    // function initializeController(
+    //     IRentController _controller
+    // ) external onlyRole(ADMIN_ROLE) {
+    //     if (address(controller) != address(0)) { revert ContractAlreadyInitialized(); }
+    //     if (address(_controller) == address(0)) { revert InvalidZeroAddress(); }
+
+    //     controller = _controller;
+
+    //     // // Get fully operational for the first time.
+    //     // updateContractOperation(true);
+
+    //     // emit ContractInitialized(
+    //     //     address(_stakingManager),
+    //     //     address(_liquidityPool),
+    //     //     msg.sender
+    //     // );
+    // }
+
+    // function updateController(
+    //     IRentController _controller
+    // ) external onlyRole(ADMIN_ROLE) {
+    //     if (address(_controller) == address(0)) { revert InvalidZeroAddress(); }
+    //     if (address(controller) == address(0)) { revert ContractNotInitialized(); }
+    //     controller = _controller;
+
+    //     // emit NewManagerUpdate(address(_controller), msg.sender);
+    // }
 
 
     function updateContractPause(
         bool _isPaused
     ) public override onlyRole(ADMIN_ROLE) {
-        if (_isPaused && (address(controller) == address(0))) {
-            revert ContractNotInitialized();
-        }
+        // if (_isPaused) { revert ContractNotInitialized(); }
         paused = _isPaused;
 
         // emit ContractUpdateOperation(_isPaused, msg.sender);
@@ -112,24 +135,30 @@ contract CentauriTreasury is
         address _owner,
         address _property,
         uint16 _propertyRentFee
-    ) public onlyController {
+    ) public onlyAvailableController {
         uint256 shares = previewDeposit(_amount);
-        (uint256 _forOwner, uint256 _forProperty) = calculateRent(
+        (uint256 _forOwner, uint256 _forProperty) = calculateRentShare(
             shares,
-            _propertyRentFee
+            _propertyRentFee,
+            percentForHodlers
         );
 
-        IERC20(asset()).safeTransferFrom(address(controller), address(this), _amount);
+        IERC20(asset()).safeTransferFrom(msg.sender, address(this), _amount);
         _mint(_owner, _forOwner);
         _mint(_property, _forProperty);
     }
 
-    function calculateRent(
-        uint256 _amount,
-        uint16 _propertyRentFee
-    ) internal pure returns (uint256 _forOwner, uint256 _forProperty) {
-        _forProperty = _amount * uint(_propertyRentFee) / uint(ONE_HUNDRED);
-        _forOwner = _amount - _forProperty;
+    /// Some amount of shares are not minted to redistribute to all.
+    function calculateRentShare(
+        uint256 _shares,
+        uint16 _propertyRentFee,
+        uint16 _percentForHodlers
+    ) private pure returns (uint256 _forOwner, uint256 _forProperty) {
+        uint256 _forCentauri = _shares * uint(_percentForHodlers) / uint(ONE_HUNDRED);
+        uint256 _remaining = _shares - _forCentauri;
+
+        _forProperty = _remaining * uint(_propertyRentFee) / uint(ONE_HUNDRED);
+        _forOwner = _remaining - _forProperty;
     }
 
     // // ******************
