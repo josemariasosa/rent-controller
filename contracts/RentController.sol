@@ -73,7 +73,7 @@ contract RentController is IRentController, Treasurable, PayServices {
         bool userWithdrawUpfront;
         bool propertyWithdrawUpfront;
 
-        /// @dev if propertyStrikeOut is true, strikes is immutable.
+        /// @dev if propertyStrikeOut is true, var strikes is immutable.
         uint8 strikes;
 
         /// @dev The accord balances should eventually go back to Zero.
